@@ -9,9 +9,6 @@
   // Keep this as "yes" when write_cookie.js must finish before any React iframe
   // src is displayed. Use a quoted Bubble dynamic value if you need to vary it.
   const WAIT_FOR_REACT_IFRAME_AUTH = "yes";
-  // Replace this with Bubble's yes/no feature flag value.
-  // Use a quoted Bubble dynamic value, e.g. "yes" or "no".
-  const LOAD_REACT_APP_FULL_IFRAME = "<LOAD_REACT_APP_FULL_IFRAME_YES_OR_NO>";
   const DEBUG = new URLSearchParams(location.search).get("debug_mode") === "true";
   const log = (...a) => { if (DEBUG) console.log("[portal]", ...a); };
   const previousCleanup = window.__portalIframeListenerCleanup;
@@ -39,12 +36,9 @@
     const value = String(v ?? "").trim();
     return /^<.+>$/.test(value) ? "" : value;
   };
-  const isFullIframeEnabled = () => isBubbleYes(LOAD_REACT_APP_FULL_IFRAME);
   const shouldWaitForReactIframeAuth = () => isBubbleYes(WAIT_FOR_REACT_IFRAME_AUTH);
   const isReactIframeAuthReady = () => !shouldWaitForReactIframeAuth() || window.__reactIframeAuthReady === true;
-  const iframeSyncFnName = () => isFullIframeEnabled()
-    ? "bubble_fn_set_main_iframe_from_url"
-    : "bubble_fn_set_iframe_from_url";
+  const iframeSyncFnName = () => "bubble_fn_set_main_iframe_from_url";
 
   const isUUID     = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s||"");
   const isBubbleId = s => /^\d{13,16}x\d{15,20}$/.test(s||"");
@@ -166,7 +160,7 @@
   })();
 
   /* ==============================
-   * URL → iframe sync (call set_iframe_from_url on real top-level changes)
+   * URL → iframe sync (call Bubble iframe sync on real top-level changes)
    * ============================== */
   const pageParam = (u) => { try { return (new URL(u || location.href)).searchParams.get("page") || ""; } catch { return ""; } };
   const workspaceParam = (u) => { try { return (new URL(u || location.href)).searchParams.get("workspace") || ""; } catch { return ""; } };
@@ -382,7 +376,7 @@
     "memory":      MEMORY_KEEP,
     "phones":      new Set(["action",                                   ...GLOBAL_KEEP]),
     "preferences": new Set([                                            ...GLOBAL_KEEP]),
-    "subaccounts": new Set(["subaccount",                               ...GLOBAL_KEEP]),
+    "subaccounts": new Set(["subaccount","tab","integration",             ...GLOBAL_KEEP]),
     "third-parties": new Set(["integration",                            ...GLOBAL_KEEP]),
     "billing":     new Set([                                            ...GLOBAL_KEEP]),
     "logs":        new Set(["log_type","call","log","model","agentId",  ...GLOBAL_KEEP]),
@@ -393,6 +387,13 @@
     const drop = [];
     for (const k of url.searchParams.keys()) if (!keep.has(k)) drop.push(k);
     drop.forEach(k => url.searchParams.delete(k));
+  };
+
+  const copyAllowedParams = (target, source, page) => {
+    const keep = ALLOW[page] || GLOBAL_KEEP;
+    for (const [k, v] of source.searchParams.entries()) {
+      if (k !== "page" && keep.has(k)) setOrDel(target.searchParams, k, v);
+    }
   };
 
   function normalizeTopLevelUrl(reason) {
@@ -470,6 +471,7 @@
     const host = new URL(location.href);
     normalizeGlobals(host, iu);
     host.searchParams.set("page", page);
+    copyAllowedParams(host, iu, page);
     applyAllow(host, page);
 
     const bubblePath = getAfterPortal(host);
@@ -586,6 +588,7 @@
       return { bubblePath:null, newPage:null };
     }
 
+    copyAllowedParams(host, iu, host.searchParams.get("page"));
     preserveLogsCallAgentId(host);
     applyAllow(host, host.searchParams.get("page"));
 
@@ -600,11 +603,6 @@
   };
 
   const refreshBubblePage = (reason) => {
-    if (!isFullIframeEnabled()) {
-      log("Skipped Bubble page refresh: full iframe flag is off ←", reason);
-      return;
-    }
-
     const fn = window.bubble_fn_refresh_page;
     if (typeof fn === "function") {
       try { fn(); log("Triggered Bubble page refresh ←", reason); } catch (e) { if (DEBUG) console.error(e); }
@@ -614,8 +612,6 @@
   };
 
   window.__portalListenerDebug = () => ({
-    loadReactAppFullIframe: LOAD_REACT_APP_FULL_IFRAME,
-    isFullIframeEnabled: isFullIframeEnabled(),
     waitForReactIframeAuth: WAIT_FOR_REACT_IFRAME_AUTH,
     isReactIframeAuthReady: isReactIframeAuthReady(),
     landingPage: cleanDynamicText(window.__reactIframeLandingPage),
@@ -662,8 +658,7 @@
       }
     }
 
-    const shouldSyncIframeFromUrl = meta.pageWillChange &&
-      (!isBubbleYes(LOAD_REACT_APP_FULL_IFRAME) || BUBBLE_PAGE_PASSTHROUGH.has(meta.newPage));
+    const shouldSyncIframeFromUrl = meta.pageWillChange && BUBBLE_PAGE_PASSTHROUGH.has(meta.newPage);
 
     if (shouldSyncIframeFromUrl) {
       log(`Calling ${iframeSyncFnName()} due to page change →`, meta.newPage);
