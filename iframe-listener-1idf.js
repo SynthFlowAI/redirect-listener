@@ -9,9 +9,7 @@
   // Keep this as "yes" when write_cookie.js must finish before any React iframe
   // src is displayed. Use a quoted Bubble dynamic value if you need to vary it.
   const WAIT_FOR_REACT_IFRAME_AUTH = "yes";
-  // Replace this with Bubble's yes/no feature flag value.
-  // Use a quoted Bubble dynamic value, e.g. "yes" or "no".
-  const LOAD_REACT_APP_FULL_IFRAME = "<LOAD_REACT_APP_FULL_IFRAME_YES_OR_NO>";
+  const LOAD_REACT_APP_FULL_IFRAME = "yes";
   const DEBUG = new URLSearchParams(location.search).get("debug_mode") === "true";
   const log = (...a) => { if (DEBUG) console.log("[portal]", ...a); };
   const previousCleanup = window.__portalIframeListenerCleanup;
