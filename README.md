@@ -18,7 +18,7 @@ The loader selects the listener by Bubble URL version:
 
 ## React To Bubble Redirects
 
-Current `1idf` and `5idf` behavior is the same.
+Current `live`, `1idf`, and `5idf` behavior is the same.
 
 | React route / Bubble-style URL | Bubble URL result |
 | --- | --- |

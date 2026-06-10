@@ -9,9 +9,6 @@
   // Keep this as "yes" when write_cookie.js must finish before any React iframe
   // src is displayed. Use a quoted Bubble dynamic value if you need to vary it.
   const WAIT_FOR_REACT_IFRAME_AUTH = "yes";
-  // Replace this with Bubble's yes/no feature flag value.
-  // Use a quoted Bubble dynamic value, e.g. "yes" or "no".
-  const LOAD_REACT_APP_FULL_IFRAME = "yes";
   const DEBUG = new URLSearchParams(location.search).get("debug_mode") === "true";
   const log = (...a) => { if (DEBUG) console.log("[portal]", ...a); };
   const previousCleanup = window.__portalIframeListenerCleanup;
@@ -39,12 +36,9 @@
     const value = String(v ?? "").trim();
     return /^<.+>$/.test(value) ? "" : value;
   };
-  const isFullIframeEnabled = () => isBubbleYes(LOAD_REACT_APP_FULL_IFRAME);
   const shouldWaitForReactIframeAuth = () => isBubbleYes(WAIT_FOR_REACT_IFRAME_AUTH);
   const isReactIframeAuthReady = () => !shouldWaitForReactIframeAuth() || window.__reactIframeAuthReady === true;
-  const iframeSyncFnName = () => isFullIframeEnabled()
-    ? "bubble_fn_set_main_iframe_from_url"
-    : "bubble_fn_set_iframe_from_url";
+  const iframeSyncFnName = () => "bubble_fn_set_main_iframe_from_url";
 
   const isUUID     = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s||"");
   const isBubbleId = s => /^\d{13,16}x\d{15,20}$/.test(s||"");
@@ -166,7 +160,7 @@
   })();
 
   /* ==============================
-   * URL → iframe sync (call set_iframe_from_url on real top-level changes)
+   * URL → iframe sync (call Bubble iframe sync on real top-level changes)
    * ============================== */
   const pageParam = (u) => { try { return (new URL(u || location.href)).searchParams.get("page") || ""; } catch { return ""; } };
   const workspaceParam = (u) => { try { return (new URL(u || location.href)).searchParams.get("workspace") || ""; } catch { return ""; } };
@@ -363,12 +357,16 @@
    * Mapping: iframe route → Bubble page/params
    * ============================== */
   const GLOBAL_KEEP = new Set(["page","debug_mode","workspace"]);
-  const BUBBLE_PAGE_PASSTHROUGH = new Set(["settings","agency"]);
+  const BUBBLE_PAGE_PASSTHROUGH = new Set(["preferences","subaccounts","third-parties","billing"]);
+  const BUBBLE_PAGE_ALIASES = {
+    settings: "preferences",
+    agency: "subaccounts",
+    integrations: "third-parties",
+  };
   const MEMORY_KEEP = new Set(["contact_type","phone_book_url","phone_book_path","memory_group_id", ...GLOBAL_KEEP]);
   const ALLOW = {
     "test-center": new Set(["view","type","session_id","testCaseId", ...GLOBAL_KEEP]),
     "rag":         new Set([                                            ...GLOBAL_KEEP]),
-    "integrations":new Set(["action",                                   ...GLOBAL_KEEP]),
     "analytics":   new Set([                                            ...GLOBAL_KEEP]),
     "workflow-builder": new Set([                                       ...GLOBAL_KEEP]),
     "aurora":      new Set([                                            ...GLOBAL_KEEP]),
@@ -377,8 +375,10 @@
     "contacts":    MEMORY_KEEP,
     "memory":      MEMORY_KEEP,
     "phones":      new Set(["action",                                   ...GLOBAL_KEEP]),
-    "settings":    new Set(["action",                                   ...GLOBAL_KEEP]),
-    "agency":      new Set(["action",                                   ...GLOBAL_KEEP]),
+    "preferences": new Set([                                            ...GLOBAL_KEEP]),
+    "subaccounts": new Set(["subaccount","tab","integration",             ...GLOBAL_KEEP]),
+    "third-parties": new Set(["integration",                            ...GLOBAL_KEEP]),
+    "billing":     new Set([                                            ...GLOBAL_KEEP]),
     "logs":        new Set(["log_type","call","log","model","agentId",  ...GLOBAL_KEEP]),
   };
 
@@ -389,7 +389,12 @@
     drop.forEach(k => url.searchParams.delete(k));
   };
 
-  const canonicalSettingsAction = (action) => action === "integrations" ? "third-parties" : action;
+  const copyAllowedParams = (target, source, page) => {
+    const keep = ALLOW[page] || GLOBAL_KEEP;
+    for (const [k, v] of source.searchParams.entries()) {
+      if (k !== "page" && keep.has(k)) setOrDel(target.searchParams, k, v);
+    }
+  };
 
   function normalizeTopLevelUrl(reason) {
     const cur = new URL(location.href);
@@ -401,11 +406,25 @@
       page = "memory";
     }
     if (page === "settings") {
-      setOrDel(cur.searchParams, "action", canonicalSettingsAction(cur.searchParams.get("action")));
+      const action = cur.searchParams.get("action");
+      page = action === "billing"
+        ? "billing"
+        : action === "integrations" || action === "third-parties"
+          ? "third-parties"
+          : "preferences";
+      cur.searchParams.set("page", page);
+    }
+    if (page === "agency") {
+      cur.searchParams.set("page", "subaccounts");
+      page = "subaccounts";
+    }
+    if (page === "integrations") {
+      cur.searchParams.set("page", "third-parties");
+      page = "third-parties";
     }
     preserveLogsCallAgentId(cur);
 
-    if (!page || !ALLOW[page] || BUBBLE_PAGE_PASSTHROUGH.has(page)) {
+    if (!page || !ALLOW[page]) {
       if (cur.href !== before) {
         history.replaceState({ portalNav: true, normalized: true }, "", cur.href);
         log("Normalized parent URL before iframe sync ←", reason, cur.href);
@@ -414,6 +433,14 @@
     }
 
     applyAllow(cur, page);
+    if (BUBBLE_PAGE_PASSTHROUGH.has(page)) {
+      if (cur.href !== before) {
+        history.replaceState({ portalNav: true, normalized: true }, "", cur.href);
+        log("Normalized parent URL before iframe sync ←", reason, cur.href);
+      }
+      return;
+    }
+
     if (cur.href === before) return;
 
     history.replaceState({ portalNav: true, normalized: true }, "", cur.href);
@@ -432,13 +459,24 @@
   };
 
   const mapBubblePageUrl = (iu) => {
-    const page = iu.searchParams.get("page");
+    const rawPage = iu.searchParams.get("page");
+    const action = iu.searchParams.get("action");
+    const page = rawPage === "settings" && (action === "integrations" || action === "third-parties")
+      ? "third-parties"
+      : rawPage === "settings" && action === "billing"
+        ? "billing"
+        : BUBBLE_PAGE_ALIASES[rawPage] || rawPage;
     if (!BUBBLE_PAGE_PASSTHROUGH.has(page)) return null;
 
-    // Settings and agency are Bubble-owned pages, not React routes. When the
-    // iframe asks for one of them, preserve the Bubble URL exactly so Bubble can
-    // switch away from the React iframe without losing action-specific params.
-    return { bubblePath: getAfterPortal(iu), newPage: page };
+    const host = new URL(location.href);
+    normalizeGlobals(host, iu);
+    host.searchParams.set("page", page);
+    copyAllowedParams(host, iu, page);
+    applyAllow(host, page);
+
+    const bubblePath = getAfterPortal(host);
+    log("Mapped Bubble page URL →", { from: iu.href, page, bubblePath });
+    return { bubblePath, newPage: page };
   };
 
   // Declarative routes (each returns target Bubble "page" and mutates search params)
@@ -458,11 +496,9 @@
     "analytics":      (u) => { u.searchParams.set("page","analytics"); },
     "workflows":      (u) => { u.searchParams.set("page","workflow-builder"); },
     "workflow-builder": (u) => { u.searchParams.set("page","workflow-builder"); },
-    "integrations":   (u) => { u.searchParams.set("page","integrations"); u.searchParams.set("action","third-parties"); },
-    "agency": (u, parts, iu) => {
-      u.searchParams.set("page","agency");
-      const action = iu.searchParams.get("action") || parts[1];
-      setOrDel(u.searchParams,"action", (!action || action === "subaccounts") ? "list-subaccounts" : action);
+    "integrations":   (u) => { u.searchParams.set("page","third-parties"); },
+    "agency": (u) => {
+      u.searchParams.set("page","subaccounts");
     },
     "agents": (u, parts) => {
       u.searchParams.set("page","agents");
@@ -503,9 +539,11 @@
     },
     "phone-numbers": (u) => { u.searchParams.set("page","phones"); u.searchParams.set("action","phones-active"); },
     "settings": (u, parts) => {
-      u.searchParams.set("page","settings");
-      const action = (parts[1] && parts[1] !== "workspace-settings") ? parts[1] : "general-wp";
-      u.searchParams.set("action", canonicalSettingsAction(action));
+      u.searchParams.set("page",
+        parts[1] === "integrations" ? "third-parties" :
+        parts[1] === "billing" ? "billing" :
+        "preferences"
+      );
     },
     "logs": (u, parts, iu) => {
       u.searchParams.set("page","logs");
@@ -539,15 +577,24 @@
     normalizeGlobals(host, iu);
 
     const mutate = ROUTES[route];
-    if (!mutate) return { bubblePath:null, newPage:null };
+    if (!mutate) {
+      log("Unknown iframe route:", { iframePath, route });
+      return { bubblePath:null, newPage:null };
+    }
 
     mutate(host, parts, iu);
-    if (!host.searchParams.get("page")) return { bubblePath:null, newPage:null };
+    if (!host.searchParams.get("page")) {
+      log("Route canceled without page:", { iframePath, route });
+      return { bubblePath:null, newPage:null };
+    }
 
+    copyAllowedParams(host, iu, host.searchParams.get("page"));
     preserveLogsCallAgentId(host);
     applyAllow(host, host.searchParams.get("page"));
 
-    return { bubblePath: getAfterPortal(host), newPage: host.searchParams.get("page") };
+    const bubblePath = getAfterPortal(host);
+    log("Mapped iframe route →", { iframePath, route, bubblePath });
+    return { bubblePath, newPage: host.searchParams.get("page") };
   };
 
   const iframeRoute = (iframePath) => {
@@ -556,11 +603,6 @@
   };
 
   const refreshBubblePage = (reason) => {
-    if (!isFullIframeEnabled()) {
-      log("Skipped Bubble page refresh: full iframe flag is off ←", reason);
-      return;
-    }
-
     const fn = window.bubble_fn_refresh_page;
     if (typeof fn === "function") {
       try { fn(); log("Triggered Bubble page refresh ←", reason); } catch (e) { if (DEBUG) console.error(e); }
@@ -570,8 +612,6 @@
   };
 
   window.__portalListenerDebug = () => ({
-    loadReactAppFullIframe: LOAD_REACT_APP_FULL_IFRAME,
-    isFullIframeEnabled: isFullIframeEnabled(),
     waitForReactIframeAuth: WAIT_FOR_REACT_IFRAME_AUTH,
     isReactIframeAuthReady: isReactIframeAuthReady(),
     landingPage: cleanDynamicText(window.__reactIframeLandingPage),
@@ -618,8 +658,7 @@
       }
     }
 
-    const shouldSyncIframeFromUrl = meta.pageWillChange &&
-      (!isBubbleYes(LOAD_REACT_APP_FULL_IFRAME) || BUBBLE_PAGE_PASSTHROUGH.has(meta.newPage));
+    const shouldSyncIframeFromUrl = meta.pageWillChange && BUBBLE_PAGE_PASSTHROUGH.has(meta.newPage);
 
     if (shouldSyncIframeFromUrl) {
       log(`Calling ${iframeSyncFnName()} due to page change →`, meta.newPage);
@@ -657,6 +696,21 @@
     return (data?.type ?? nested?.type ?? "").toString().toLowerCase();
   };
 
+  const messageDebugSummary = (data) => {
+    if (typeof data === "string") return { rawString: data };
+    if (!data || typeof data !== "object") return { kind: typeof data };
+
+    const nested = data.payload && typeof data.payload === "object" ? data.payload : null;
+    const normalized = normalizeMsg(data.path ?? data.payload ?? data);
+    return {
+      type: msgType(data),
+      target: data.target || nested?.target || normalized.target || "",
+      path: normalized.path || data.path || nested?.path || "",
+      payloadType: Array.isArray(data.payload) ? "array" : typeof data.payload,
+      keys: Object.keys(data).slice(0, 8),
+    };
+  };
+
   const ackWorkspaceChange = (event, workspace) => {
     try {
       event.source?.postMessage(
@@ -673,7 +727,11 @@
 
     const data = event.data || {};
     const type = msgType(data);
-    if (type !== "navigate" && type !== "logout" && type !== "set_workspace") return;
+    log("Message received:", { origin: event.origin, summary: messageDebugSummary(data) });
+    if (type !== "navigate" && type !== "logout" && type !== "set_workspace") {
+      log("Ignored message: unsupported type", messageDebugSummary(data));
+      return;
+    }
 
     const frame = sourceIframe(event);
     if (!frame || !isVisible(frame)) { log(`Ignored ${type}: iframe not found/visible`); return; }
@@ -725,7 +783,7 @@
     const normalizedNavigate = normalizeMsg(data.path ?? data.payload ?? data);
     const path = normalizedNavigate.path;
     const target = normalizedNavigate.target || (data.target || "").toString().toLowerCase();
-    if (!path) return;
+    if (!path) { log("Ignored navigate: missing path", messageDebugSummary(data)); return; }
 
     pending = { path, target };
     if (t) clearTimeout(t);
