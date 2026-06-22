@@ -356,7 +356,7 @@
   /* ==============================
    * Mapping: iframe route → Bubble page/params
    * ============================== */
-  const GLOBAL_KEEP = new Set(["page","debug_mode","workspace"]);
+  const GLOBAL_KEEP = new Set(["page","debug_mode","workspace","conversationId"]);
   const BUBBLE_PAGE_PASSTHROUGH = new Set(["preferences","subaccounts","third-parties","billing"]);
   const BUBBLE_PAGE_ALIASES = {
     settings: "preferences",
