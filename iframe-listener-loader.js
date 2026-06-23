@@ -3,6 +3,7 @@
     "version-live": "iframe-listener-live.js",
     "version-1idf": "iframe-listener-1idf.js",
     "version-5idf": "iframe-listener-5idf.js",
+    "version-8k1": "iframe-listener-5idf.js",
   };
   const DEFAULT_VERSION = "version-live";
   const DEBUG = new URLSearchParams(location.search).get("debug_mode") === "true";
