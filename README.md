@@ -43,7 +43,7 @@ Current `live`, `1idf`, and `5idf` behavior is the same.
 | `?page=integrations` | `?page=third-parties` |
 | `/logs/:type` | `?page=logs&log_type=:type` plus `call`, `log`, `agentId`/`model` when present |
 
-Global params preserved when allowed: `page`, `workspace`, and `debug_mode`.
+Global params preserved when allowed: `page`, `workspace`, `debug_mode`, and `conversationId`.
 
 ## Testing The Listener
 
