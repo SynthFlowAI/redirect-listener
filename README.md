@@ -118,3 +118,78 @@ Finally, test these redirects:
 | Go to settings billing | `?page=billing&workspace=...` |
 | Go to settings integrations | `?page=third-parties&workspace=...` |
 | Go to integrations | `?page=third-parties&workspace=...` |
+
+## Post-Login Portal Handoff
+
+`portal_handoff.js` runs in Bubble after a successful login for non-whitelabel users. It
+sends the browser to the BFF, which redeems a one-time hash, sets the `security_token`
+cookie and redirects on to the standalone portal app. Whitelabel users keep the existing
+`write_cookie` iframe path and never run this script.
+
+The hash is minted by a Bubble backend workflow and passed in as a dynamic value. This
+repo is public and every `.js` is served with `Access-Control-Allow-Origin: *`, so nothing
+here generates, derives or signs it.
+
+| Bubble parameter | Value | Required |
+| --- | --- | --- |
+| `properties.param1` | BFF portal auth endpoint, e.g. `https://app.synthflow.ai/_api/portal/auth` | yes |
+| `properties.param2` | One-time handoff hash | yes |
+
+The endpoint goes through the portal app's own `/_api` proxy rather than a BFF host, so the
+handoff and the cookie it sets stay first-party to `app.synthflow.ai`.
+
+The BFF also accepts `redirect` and `workspace`, but neither is sent. There is no workspace
+in scope on the login page, and the portal resolves both itself, so the user lands on
+`/portal`.
+
+The script navigates with `window.location.replace`, so the login page does not stay in
+back history and a burnt hash cannot be replayed with the back button.
+
+It does nothing at all — no navigation, user stays in Bubble — when the endpoint or the
+hash is missing, blank or an unsubstituted `<...>` placeholder, when the endpoint is not a
+valid URL, or when the endpoint is not `https`.
+
+### Testing The Handoff
+
+Open the Bubble login with `debug_mode=true` and run:
+
+```js
+window.__portalHandoffDebug()
+```
+
+Expected before a successful navigation:
+
+```js
+{
+  endpoint: "https://app.synthflow.ai/_api/portal/auth",
+  hasToken: true,
+  targetUrl: "https://app.synthflow.ai/_api/portal/auth?token=<redacted>",
+  skippedReason: null,
+  navigated: true,
+  alreadyStarted: true,
+  debugMode: true
+}
+```
+
+`skippedReason` names the guard that fired when nothing happened: `missing endpoint`,
+`missing token`, `malformed endpoint`, `endpoint is not https`, or `already started`. The
+hash is never logged or returned; `hasToken` and the redacted `targetUrl` are all the
+inspector exposes.
+
+A refused hash sends the user back to the Bubble login with `?error=portal_handoff`.
+
+## Feature Flags
+
+`load_feature_flags.js` pulls Flipt flags through `window.SynthflowFlags` and pushes each
+one into a Bubble function.
+
+| Flag key | Bubble function |
+| --- | --- |
+| `workflows_migration` | `bubble_fn_ff_workflows_migration` |
+| `load_react_app_full_iframe` | `bubble_fn_ff_load_react_app_full_iframe` |
+| `bubble_portal_login` | `bubble_fn_ff_bubble_portal_login` |
+
+Flags initialise from the `workspace` URL parameter and are skipped entirely when it is
+absent. The login page has no workspace yet, so `bubble_portal_login` cannot gate the
+handoff there — that gate belongs in the Bubble login workflow, and the BFF stays
+authoritative regardless, since it evaluates the same flag on the user's email.
