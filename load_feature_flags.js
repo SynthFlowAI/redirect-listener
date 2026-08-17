@@ -5,6 +5,11 @@
  * Bubble function outputs:
  *   bubble_fn_ff_workflows_migration(value)
  *   bubble_fn_ff_load_react_app_full_iframe(value)
+ *   bubble_fn_ff_bubble_portal_login(value)
+ *
+ * Flags only load on pages whose URL carries ?workspace=; there is no workspace on the
+ * login page, so bubble_portal_login is unavailable there and the post-login fork has to
+ * be gated in Bubble instead.
  */
 var FEATURE_FLAGS_CONFIG = [
   {
@@ -16,6 +21,11 @@ var FEATURE_FLAGS_CONFIG = [
     key: "load_react_app_full_iframe",
     defaultValue: false,
     bubbleFn: "bubble_fn_ff_load_react_app_full_iframe",
+  },
+  {
+    key: "bubble_portal_login",
+    defaultValue: false,
+    bubbleFn: "bubble_fn_ff_bubble_portal_login",
   },
 ];
 
