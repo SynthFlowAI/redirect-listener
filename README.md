@@ -134,13 +134,18 @@ here generates, derives or signs it.
 | --- | --- | --- |
 | `properties.param1` | BFF portal auth endpoint, e.g. `https://app.synthflow.ai/_api/portal/auth` | yes |
 | `properties.param2` | One-time handoff hash | yes |
+| `properties.param3` | Workspace ID, e.g. `Current User's workspace_selected's unique id` | no |
 
 The endpoint goes through the portal app's own `/_api` proxy rather than a BFF host, so the
 handoff and the cookie it sets stay first-party to `app.synthflow.ai`.
 
-The BFF also accepts `redirect` and `workspace`, but neither is sent. There is no workspace
-in scope on the login page, and the portal resolves both itself, so the user lands on
-`/portal`.
+The destination is fixed at `/agents`, sent as the BFF's `redirect` parameter. The BFF lands
+the user on `/portal` when no redirect is given, which is not where a post-login user should
+arrive.
+
+The workspace ID is passed through to the BFF, which carries it into the portal URL as
+`?workspace=`. Without it the app has to resolve a workspace itself, so send it whenever
+Bubble knows which one the user is opening.
 
 The script navigates with `window.location.replace`, so the login page does not stay in
 back history and a burnt hash cannot be replayed with the back button.
@@ -163,7 +168,9 @@ Expected before a successful navigation:
 {
   endpoint: "https://app.synthflow.ai/_api/portal/auth",
   hasToken: true,
-  targetUrl: "https://app.synthflow.ai/_api/portal/auth?token=<redacted>",
+  redirect: "/agents",
+  workspace: "1712345678901x123456789012345678",
+  targetUrl: "https://app.synthflow.ai/_api/portal/auth?token=<redacted>&redirect=%2Fagents&workspace=...",
   skippedReason: null,
   navigated: true,
   alreadyStarted: true,

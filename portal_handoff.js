@@ -2,6 +2,8 @@
  * Bubble dynamic values:
  *   properties.param1 = BFF portal auth endpoint, e.g. "https://app.synthflow.ai/_api/portal/auth"
  *   properties.param2 = one-time handoff hash minted by the Bubble backend workflow
+ *   properties.param3 = workspace ID, optional. The BFF carries it into the portal URL as
+ *                       ?workspace=, which is how the app knows which workspace to open.
  *
  * Run this after a successful Bubble login for users who are being forked to the
  * standalone portal app. It hands the browser to the BFF, which redeems the hash,
@@ -12,12 +14,19 @@
  */
 var PORTAL_HANDOFF_ENDPOINT = typeof properties !== "undefined" && properties ? properties.param1 : "";
 var PORTAL_HANDOFF_TOKEN = typeof properties !== "undefined" && properties ? properties.param2 : "";
+var PORTAL_HANDOFF_WORKSPACE = typeof properties !== "undefined" && properties ? properties.param3 : "";
+
+// The BFF lands the user on /portal when no redirect is given, which is not where a
+// post-login user should arrive.
+var PORTAL_HANDOFF_REDIRECT = "/agents";
 
 var PORTAL_HANDOFF_DEBUG = new URLSearchParams(location.search).get("debug_mode") === "true";
 
 var portalHandoffState = {
   endpoint: "",
   hasToken: false,
+  redirect: "",
+  workspace: "",
   targetUrl: "",
   skippedReason: null,
   navigated: false,
@@ -42,6 +51,8 @@ window.__portalHandoffDebug = function() {
   return {
     endpoint: portalHandoffState.endpoint,
     hasToken: portalHandoffState.hasToken,
+    redirect: portalHandoffState.redirect,
+    workspace: portalHandoffState.workspace,
     targetUrl: portalHandoffState.targetUrl,
     skippedReason: portalHandoffState.skippedReason,
     navigated: portalHandoffState.navigated,
@@ -53,13 +64,18 @@ window.__portalHandoffDebug = function() {
 (function forkToPortalHandoff() {
   var endpoint = cleanBubbleValueForPortalHandoff(PORTAL_HANDOFF_ENDPOINT);
   var token = cleanBubbleValueForPortalHandoff(PORTAL_HANDOFF_TOKEN);
+  var workspace = cleanBubbleValueForPortalHandoff(PORTAL_HANDOFF_WORKSPACE);
 
   portalHandoffState.endpoint = endpoint;
   portalHandoffState.hasToken = !!token;
+  portalHandoffState.redirect = PORTAL_HANDOFF_REDIRECT;
+  portalHandoffState.workspace = workspace;
 
   portalHandoffLog("Starting handoff with", {
     endpoint: endpoint,
     hasToken: !!token,
+    redirect: PORTAL_HANDOFF_REDIRECT,
+    workspace: workspace,
   });
 
   if (window.__portalHandoffStarted === true) {
@@ -96,6 +112,8 @@ window.__portalHandoffDebug = function() {
   }
 
   url.searchParams.set("token", token);
+  url.searchParams.set("redirect", PORTAL_HANDOFF_REDIRECT);
+  if (workspace) url.searchParams.set("workspace", workspace);
 
   portalHandoffState.targetUrl = redactedPortalHandoffUrl(url);
   portalHandoffState.navigated = true;
