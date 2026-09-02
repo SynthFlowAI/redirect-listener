@@ -140,7 +140,7 @@
 
   function appendSegment(parts, value) {
     var segment = clean(value).replace(/^\/+|\/+$/g, "");
-    if (segment) parts.push(segment);
+    if (segment) parts.push(encodeURIComponent(segment));
   }
 
   function applySegments(parts, params, segments) {
