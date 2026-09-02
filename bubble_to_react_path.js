@@ -1,43 +1,104 @@
 /*
- * Maps a fine-tuner.ai / Bubble portal URL to a standalone React path.
+ * Maps a Bubble portal URL to a standalone React path.
+ *
+ * Bubble dynamic values:
+ *   properties.param1 = portal base, e.g. "https://fine-tuner.ai/portal"
+ *                       or "https://fine-tuner.ai/version-8k1/portal"
  *
  * Load this on the Bubble page before portal_handoff.js. It publishes
  * window.bubblePathToReactPath so later Run javascript steps can reuse it.
+ * Later steps may pass a base as the second argument:
+ *   bubblePathToReactPath(location.href)
+ *   bubblePathToReactPath("?page=logs", "https://fine-tuner.ai/version-8k1/portal")
  *
- * Mirrors the Bubble iframe-src expression (page + path segments + destination
- * query). Iframe-only query (user_id, theme, bubble_version, navstart) is dropped.
+ * To add a page, append one object to PAGE_ROUTES (first match wins):
+ *   pages    Bubble ?page= values
+ *   when     optional extra query that must match (e.g. { action: "billing" })
+ *   path     React pathname
+ *   segments path parts after `path`: "param", { param, require }, { literal, require }
+ *   query    search params: "sameName", { from, as, when, unless }
+ *            `from` may be a list; first non-empty wins. Same `as` is first-wins.
+ *
+ * Iframe-only query (user_id, theme, bubble_version, navstart) is dropped.
  * Unknown or empty page falls back to /agents.
  */
 (function publishBubbleToReactPath() {
-  var PAGE_ALIASES = {
-    contacts: "memory",
-    agency: "subaccounts",
-    integrations: "third-parties",
-  };
-
-  var REACT_ROOTS = {
-    agents: true,
-    logs: true,
-    "knowledge-base": true,
-    aurora: true,
-    analytics: true,
-    workflows: true,
-    "workflow-builder": true,
-    integrations: true,
-    agency: true,
-    actions: true,
-    contacts: true,
-    "phone-numbers": true,
-    "test-center": true,
-    settings: true,
-  };
-
+  var PORTAL_BASE_PARAM = typeof properties !== "undefined" && properties ? properties.param1 : "";
   var IFRAME_ONLY_QUERY = {
     user_id: true,
     theme: true,
     bubble_version: true,
     navstart: true,
   };
+
+  var GLOBAL_QUERY = ["workspace", "conversationId", "debug_mode"];
+
+  var CALL_ID_FROM = ["call", "callId", "call_id", "chatId", "log_id"];
+
+  var PAGE_ROUTES = [
+    {
+      pages: ["agents"],
+      path: "/agents",
+      segments: ["model", { param: "view", require: "model" }],
+    },
+    {
+      pages: ["logs"],
+      path: "/logs",
+      segments: ["log_type"],
+      query: [
+        { from: CALL_ID_FROM, as: "chatId", when: { log_type: "chat" } },
+        { from: CALL_ID_FROM, as: "callId", unless: { log_type: "chat" } },
+        { from: ["apiLogId", "api_log_id", "log"], as: "apiLogId" },
+        { from: "agentId", as: "agentId" },
+        { from: "model", as: "agentId", unless: { log_type: "call" } },
+      ],
+    },
+    {
+      pages: ["actions"],
+      path: "/actions",
+      segments: ["action_type", "action_path", "view"],
+      query: ["action_id", "action_url", "call"],
+    },
+    {
+      pages: ["memory", "contacts"],
+      path: "/contacts",
+      segments: ["contact_type", "phone_book_path", "memory_group_id"],
+      query: [{ from: ["phone_book_url", "phone_book_id"], as: "phone_book_id" }],
+    },
+    {
+      pages: ["test-center"],
+      path: "/test-center",
+      segments: [
+        "view",
+        { literal: "session", require: "session_id" },
+        { param: "session_id", require: "session_id" },
+        "testCaseId",
+      ],
+      query: ["type", "testCaseId"],
+    },
+    { pages: ["rag"], path: "/knowledge-base" },
+    { pages: ["aurora"], path: "/aurora" },
+    { pages: ["analytics"], path: "/analytics" },
+    { pages: ["workflow-builder", "workflows"], path: "/workflows" },
+    { pages: ["third-parties", "integrations"], path: "/integrations" },
+    { pages: ["settings"], when: { action: ["integrations", "third-parties"] }, path: "/integrations" },
+    { pages: ["subaccounts", "agency"], path: "/agency" },
+    { pages: ["phones"], path: "/phone-numbers" },
+    { pages: ["billing"], path: "/settings/billing" },
+    { pages: ["settings"], when: { action: "billing" }, path: "/settings/billing" },
+    { pages: ["preferences", "settings"], path: "/settings" },
+  ];
+
+  var DEFAULT_ROUTE = PAGE_ROUTES[0];
+
+  var REACT_ROOTS = (function collectReactRoots() {
+    var roots = { "workflow-builder": true };
+    for (var i = 0; i < PAGE_ROUTES.length; i++) {
+      var root = PAGE_ROUTES[i].path.replace(/^\/+|\/+$/g, "").split("/")[0];
+      if (root) roots[root] = true;
+    }
+    return roots;
+  })();
 
   function clean(value) {
     var text = String(value || "").trim();
@@ -52,28 +113,29 @@
     return "";
   }
 
-  function parseInput(input) {
-    var raw = clean(input);
-    if (!raw) return new URL("https://fine-tuner.ai/portal");
-    if (/^https?:\/\//i.test(raw)) return new URL(raw);
-    if (raw.charAt(0) === "?") return new URL("https://fine-tuner.ai/portal" + raw);
-    return new URL(raw, "https://fine-tuner.ai");
+  function asList(value) {
+    if (value == null) return [];
+    return Object.prototype.toString.call(value) === "[object Array]" ? value : [value];
   }
 
-  function afterPortal(pathname) {
-    var match = String(pathname || "").match(/\/portal\/(.*)$/);
-    return match ? "/" + match[1] : pathname;
-  }
-
-  function normalizePage(params) {
-    var page = clean(params.get("page"));
-    var action = clean(params.get("action"));
-    if (page === "settings" && action === "billing") return "billing";
-    if (page === "settings" && (action === "integrations" || action === "third-parties")) {
-      return "third-parties";
+  function matchesWhen(when, params) {
+    if (!when) return true;
+    for (var key in when) {
+      if (!Object.prototype.hasOwnProperty.call(when, key)) continue;
+      if (asList(when[key]).indexOf(clean(params.get(key))) === -1) return false;
     }
-    if (page === "settings") return "preferences";
-    return PAGE_ALIASES[page] || page;
+    return true;
+  }
+
+  function findRoute(params) {
+    var page = clean(params.get("page"));
+    for (var i = 0; i < PAGE_ROUTES.length; i++) {
+      var route = PAGE_ROUTES[i];
+      if (route.pages.indexOf(page) === -1) continue;
+      if (!matchesWhen(route.when, params)) continue;
+      return route;
+    }
+    return DEFAULT_ROUTE;
   }
 
   function appendSegment(parts, value) {
@@ -81,9 +143,75 @@
     if (segment) parts.push(segment);
   }
 
+  function applySegments(parts, params, segments) {
+    if (!segments) return;
+    for (var i = 0; i < segments.length; i++) {
+      var spec = segments[i];
+      if (typeof spec === "string") {
+        appendSegment(parts, params.get(spec));
+        continue;
+      }
+      if (spec.require && !clean(params.get(spec.require))) continue;
+      if (spec.literal) appendSegment(parts, spec.literal);
+      else appendSegment(parts, params.get(spec.param));
+    }
+  }
+
   function setQuery(search, key, value) {
     var text = clean(value);
     if (text) search.set(key, text);
+  }
+
+  function applyQuery(params, search, specs) {
+    if (!specs) return;
+    for (var i = 0; i < specs.length; i++) {
+      var spec = specs[i];
+      if (typeof spec === "string") spec = { from: spec, as: spec };
+      if (spec.when && !matchesWhen(spec.when, params)) continue;
+      if (spec.unless && matchesWhen(spec.unless, params)) continue;
+      var as = spec.as || asList(spec.from)[0];
+      if (!as || search.get(as)) continue;
+      setQuery(search, as, firstClean(params, asList(spec.from)));
+    }
+  }
+
+  function applyGlobalQuery(params, search) {
+    for (var i = 0; i < GLOBAL_QUERY.length; i++) {
+      setQuery(search, GLOBAL_QUERY[i], params.get(GLOBAL_QUERY[i]));
+    }
+  }
+
+  function inferPortalBaseFromLocation() {
+    if (typeof location === "undefined" || !location.href) return "";
+    try {
+      var here = new URL(location.href);
+      var parts = here.pathname.split("/").filter(Boolean);
+      var prefix = parts[0] && /^version-[^/]+$/.test(parts[0]) ? "/" + parts[0] : "";
+      return here.origin + prefix + "/portal";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function resolvePortalBase(override) {
+    var raw = clean(override) || clean(PORTAL_BASE_PARAM) || inferPortalBaseFromLocation();
+    if (!raw) raw = "https://bubble.local/portal";
+    if (!/^https?:\/\//i.test(raw)) raw = "https://" + raw.replace(/^\/+/, "");
+    return new URL(raw);
+  }
+
+  function parseInput(input, portalBase) {
+    var raw = clean(input);
+    var base = resolvePortalBase(portalBase);
+    if (!raw) return base;
+    if (/^https?:\/\//i.test(raw)) return new URL(raw);
+    if (raw.charAt(0) === "?") return new URL(base.pathname.replace(/\/+$/, "") + raw, base.origin);
+    return new URL(raw, base.origin);
+  }
+
+  function afterPortal(pathname) {
+    var match = String(pathname || "").match(/\/portal\/(.*)$/);
+    return match ? "/" + match[1] : pathname;
   }
 
   function isSafeReactPath(path) {
@@ -103,126 +231,8 @@
     return search;
   }
 
-  function applyGlobalQuery(params, search) {
-    setQuery(search, "workspace", params.get("workspace"));
-    setQuery(search, "conversationId", params.get("conversationId"));
-    setQuery(search, "debug_mode", params.get("debug_mode"));
-  }
-
-  var PAGE_ROUTES = {
-    // Agents
-    // Bubble: ?page=agents&model=&view=
-    // React:  /agents/:model/:view
-    agents: {
-      path: "/agents",
-      appendPath: function (parts, params) {
-        var model = clean(params.get("model"));
-        appendSegment(parts, model);
-        if (model) appendSegment(parts, params.get("view"));
-      },
-    },
-
-    // Logs
-    // Bubble: ?page=logs&log_type=&call=&log=&agentId=  (call also as callId/chatId/log_id)
-    // React:  /logs/:log_type?chatId= | ?callId=&apiLogId=&agentId=
-    logs: {
-      path: "/logs",
-      appendPath: function (parts, params) {
-        appendSegment(parts, params.get("log_type"));
-      },
-      appendQuery: function (params, search) {
-        var logType = clean(params.get("log_type"));
-        var callId = firstClean(params, ["call", "callId", "call_id", "chatId", "log_id"]);
-        var apiLogId = firstClean(params, ["apiLogId", "api_log_id", "log"]);
-        var agentId = clean(params.get("agentId") || (logType !== "call" ? params.get("model") : ""));
-        if (logType === "chat") setQuery(search, "chatId", callId);
-        else setQuery(search, "callId", callId);
-        setQuery(search, "apiLogId", apiLogId);
-        setQuery(search, "agentId", agentId);
-      },
-    },
-
-    // Actions
-    // Bubble: ?page=actions&action_type=&action_path=&view=&action_id=&action_url=&call=
-    // React:  /actions/:action_type/:action_path/:view?action_id=&action_url=&call=
-    actions: {
-      path: "/actions",
-      appendPath: function (parts, params) {
-        appendSegment(parts, params.get("action_type"));
-        appendSegment(parts, params.get("action_path"));
-        appendSegment(parts, params.get("view"));
-      },
-      appendQuery: function (params, search) {
-        setQuery(search, "action_id", params.get("action_id"));
-        setQuery(search, "action_url", params.get("action_url"));
-        setQuery(search, "call", params.get("call"));
-      },
-    },
-
-    // Contacts (Bubble page=memory, alias page=contacts)
-    // Bubble: ?page=memory&contact_type=&phone_book_path=&memory_group_id=&phone_book_url=
-    // React:  /contacts/:contact_type/:phone_book_path|:memory_group_id?phone_book_id=
-    memory: {
-      path: "/contacts",
-      appendPath: function (parts, params) {
-        appendSegment(parts, params.get("contact_type"));
-        appendSegment(parts, params.get("phone_book_path"));
-        appendSegment(parts, params.get("memory_group_id"));
-      },
-      appendQuery: function (params, search) {
-        setQuery(search, "phone_book_id", params.get("phone_book_url") || params.get("phone_book_id"));
-      },
-    },
-
-    // Test center
-    // Bubble: ?page=test-center&view=&session_id=&testCaseId=&type=
-    // React:  /test-center/:view/session/:session_id/:testCaseId?type=&testCaseId=
-    "test-center": {
-      path: "/test-center",
-      appendPath: function (parts, params) {
-        appendSegment(parts, params.get("view"));
-        if (clean(params.get("session_id"))) {
-          appendSegment(parts, "session");
-          appendSegment(parts, params.get("session_id"));
-        }
-        appendSegment(parts, params.get("testCaseId"));
-      },
-      appendQuery: function (params, search) {
-        setQuery(search, "type", params.get("type"));
-        setQuery(search, "testCaseId", params.get("testCaseId"));
-      },
-    },
-
-    // Knowledge base — ?page=rag → /knowledge-base
-    rag: { path: "/knowledge-base" },
-
-    // Aurora — ?page=aurora → /aurora
-    aurora: { path: "/aurora" },
-
-    // Analytics — ?page=analytics → /analytics
-    analytics: { path: "/analytics" },
-
-    // Workflows — ?page=workflow-builder|workflows → /workflows
-    "workflow-builder": { path: "/workflows" },
-    workflows: { path: "/workflows" },
-
-    // Integrations — ?page=third-parties|integrations → /integrations
-    "third-parties": { path: "/integrations" },
-
-    // Agency — ?page=subaccounts|agency → /agency
-    subaccounts: { path: "/agency" },
-
-    // Phone numbers — ?page=phones → /phone-numbers
-    phones: { path: "/phone-numbers" },
-
-    // Settings — ?page=preferences|settings → /settings
-    //            ?page=billing|settings&action=billing → /settings/billing
-    preferences: { path: "/settings" },
-    billing: { path: "/settings/billing" },
-  };
-
-  function bubblePathToReactPath(input) {
-    var url = parseInput(input);
+  function bubblePathToReactPath(input, portalBase) {
+    var url = parseInput(input, portalBase);
     var pathname = afterPortal(url.pathname || "/");
 
     if (isReactPathname(pathname)) {
@@ -232,14 +242,13 @@
     }
 
     var params = url.searchParams;
-    var page = normalizePage(params);
-    var route = PAGE_ROUTES[page] || PAGE_ROUTES.agents;
+    var route = findRoute(params);
     var parts = [route.path];
-    if (route.appendPath) route.appendPath(parts, params);
+    applySegments(parts, params, route.segments);
 
     var search = new URLSearchParams();
     applyGlobalQuery(params, search);
-    if (route.appendQuery) route.appendQuery(params, search);
+    applyQuery(params, search, route.query);
 
     var path = parts.join("/").replace(/\/{2,}/g, "/");
     var query = search.toString();
