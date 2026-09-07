@@ -30,10 +30,19 @@ function isMissingBubbleValue(value) {
   return value === undefined || value === null || String(value).trim() === "";
 }
 
+function getReactIframeBaseUrl() {
+  try {
+    return isMissingBubbleValue(API_URL) ? "" : new URL(API_URL, location.href).origin;
+  } catch (e) {
+    return "";
+  }
+}
+
 function markReactIframeAuthReady(data) {
   window.__reactIframeLandingPage = isMissingBubbleValue(REACT_IFRAME_LANDING_PAGE)
     ? ""
     : String(REACT_IFRAME_LANDING_PAGE || "");
+  window.__reactIframeBaseUrl = getReactIframeBaseUrl();
   window.__reactIframeAuthReady = true;
   window.__reactIframeAuthError = null;
   window.__reactIframeAuthResult = data || null;
@@ -41,6 +50,7 @@ function markReactIframeAuthReady(data) {
     detail: {
       result: data || null,
       landingPage: window.__reactIframeLandingPage,
+      baseUrl: window.__reactIframeBaseUrl,
     },
   }));
 }
@@ -54,6 +64,7 @@ function markReactIframeAuthFailed(error) {
 window.__reactIframeCookieDebug = function() {
   return {
     apiUrl: API_URL,
+    baseUrl: getReactIframeBaseUrl(),
     hasToken: !isMissingBubbleValue(AUTH_TOKEN),
     loadReactAppFullIframe: LOAD_REACT_APP_FULL_IFRAME,
     landingPage: isMissingBubbleValue(REACT_IFRAME_LANDING_PAGE) ? "" : REACT_IFRAME_LANDING_PAGE,
@@ -69,6 +80,7 @@ async function writeReactIframeCookie() {
   window.__reactIframeLandingPage = isMissingBubbleValue(REACT_IFRAME_LANDING_PAGE)
     ? ""
     : String(REACT_IFRAME_LANDING_PAGE || "");
+  window.__reactIframeBaseUrl = getReactIframeBaseUrl();
 
   if (window.__reactIframeAuthReady === true) {
     cookieLog("React iframe auth already ready");

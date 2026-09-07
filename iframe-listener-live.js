@@ -39,6 +39,20 @@
   const shouldWaitForReactIframeAuth = () => isBubbleYes(WAIT_FOR_REACT_IFRAME_AUTH);
   const isReactIframeAuthReady = () => !shouldWaitForReactIframeAuth() || window.__reactIframeAuthReady === true;
   const iframeSyncFnName = () => "bubble_fn_set_main_iframe_from_url";
+  const reactIframeBaseUrl = () => {
+    const explicitBaseUrl = cleanDynamicText(window.__reactIframeBaseUrl);
+    if (explicitBaseUrl) return explicitBaseUrl;
+
+    try {
+      const debug = window.__reactIframeCookieDebug;
+      if (typeof debug !== "function") return "";
+
+      const apiUrl = cleanDynamicText(debug()?.apiUrl);
+      return apiUrl ? new URL(apiUrl, location.href).origin : "";
+    } catch {
+      return "";
+    }
+  };
 
   const isUUID     = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s||"");
   const isBubbleId = s => /^\d{13,16}x\d{15,20}$/.test(s||"");
@@ -274,9 +288,12 @@
     if (typeof fn === "function") {
       try {
         const iframeSyncArg = iframeSyncArgFor(reason);
-        if (iframeSyncArg) fn(iframeSyncArg);
-        else fn();
-        log("Synced iframes from URL ←", reason, location.href, iframeSyncArg ? { iframeSyncArg } : "");
+        const iframeBaseUrl = reactIframeBaseUrl();
+        fn({
+          value: iframeSyncArg || "",
+          output1: iframeBaseUrl,
+        });
+        log("Synced iframes from URL ←", reason, location.href, { iframeSyncArg, iframeBaseUrl });
       } catch (e) { if (DEBUG) console.error(e); }
     } else {
       log(`${fnName} missing; skip`);
