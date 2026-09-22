@@ -36,6 +36,7 @@ Current `live`, `1idf`, and `5idf` behavior is the same.
 | `/contacts/phone-books/:path?phone_book_id=...` | `?page=memory&contact_type=phone-books&phone_book_url=...&phone_book_path=:path` |
 | `/contacts/memory-groups/:id` | `?page=memory&contact_type=memory-groups&memory_group_id=:id` |
 | `/phone-numbers` | `?page=phones&action=phones-active` |
+| `/8x8/settings` or `/8x8/settings/billing` | `?page=billing` |
 | `/settings/billing` or `?page=settings&action=billing` | `?page=billing` |
 | `/settings/integrations` or `?page=settings&action=integrations` | `?page=third-parties` |
 | `/settings/...` | `?page=preferences` |
@@ -115,6 +116,7 @@ Finally, test these redirects:
 
 | Action | Expected parent URL |
 | --- | --- |
+| Go to `/8x8/settings` or `/8x8/settings/billing` | `?page=billing&workspace=...` |
 | Go to settings billing | `?page=billing&workspace=...` |
 | Go to settings integrations | `?page=third-parties&workspace=...` |
 | Go to integrations | `?page=third-parties&workspace=...` |
