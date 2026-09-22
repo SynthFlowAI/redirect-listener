@@ -562,6 +562,11 @@
         "preferences"
       );
     },
+    // Only 8x8 Settings and Upgrade are mapped; any other /8x8 path is ignored.
+    "8x8": (u, parts) => {
+      if (parts[1] === "settings" && (!parts[2] || parts[2] === "billing")) u.searchParams.set("page","billing");
+      else u.searchParams.delete("page");
+    },
     "logs": (u, parts, iu) => {
       u.searchParams.set("page","logs");
       const sub = parts[1];
