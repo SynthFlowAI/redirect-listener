@@ -562,11 +562,6 @@
         "preferences"
       );
     },
-    // Only 8x8 Settings and Upgrade are mapped; any other /8x8 path is ignored.
-    "8x8": (u, parts) => {
-      if (parts[1] === "settings" && (!parts[2] || parts[2] === "billing")) u.searchParams.set("page","billing");
-      else u.searchParams.delete("page");
-    },
     "logs": (u, parts, iu) => {
       u.searchParams.set("page","logs");
       const sub = parts[1];
@@ -587,12 +582,21 @@
     },
   };
 
+  // The 8x8 React app serves the same routes under /8x8.
+  const REACT_PATH_PREFIX = "8x8";
+  const pathParts = (pathname) => String(pathname || "").split("/").filter(Boolean);
+  const hasReactPathPrefix = (pathname) => pathParts(pathname)[0] === REACT_PATH_PREFIX;
+  const routeParts = (pathname) => {
+    const parts = pathParts(pathname);
+    return parts[0] === REACT_PATH_PREFIX ? parts.slice(1) : parts;
+  };
+
   const mapIframeToBubblePath = (iframePath) => {
     const iu = new URL(iframePath, location.origin);
     const bubblePage = mapBubblePageUrl(iu);
     if (bubblePage) return bubblePage;
 
-    const parts = iu.pathname.split("/").filter(Boolean);
+    const parts = routeParts(iu.pathname);
     const route = parts[0];
     const host = new URL(location.href);
 
@@ -605,6 +609,10 @@
     }
 
     mutate(host, parts, iu);
+    // In 8x8, both the Settings nav item and the Upgrade button open billing.
+    if (hasReactPathPrefix(iu.pathname) && route === "settings" && (!parts[1] || parts[1] === "billing")) {
+      host.searchParams.set("page", "billing");
+    }
     if (!host.searchParams.get("page")) {
       log("Route canceled without page:", { iframePath, route });
       return { bubblePath:null, newPage:null };
@@ -620,7 +628,7 @@
   };
 
   const iframeRoute = (iframePath) => {
-    try { return new URL(iframePath, location.origin).pathname.split("/").filter(Boolean)[0] || ""; }
+    try { return routeParts(new URL(iframePath, location.origin).pathname)[0] || ""; }
     catch { return ""; }
   };
 
