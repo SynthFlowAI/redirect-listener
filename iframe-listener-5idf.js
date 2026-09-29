@@ -356,7 +356,7 @@
   /* ==============================
    * Mapping: iframe route → Bubble page/params
    * ============================== */
-  const GLOBAL_KEEP = new Set(["page","debug_mode","workspace","conversationId"]);
+  const GLOBAL_KEEP = new Set(["page","debug_mode","workspace","call"]);
   const BUBBLE_PAGE_PASSTHROUGH = new Set(["preferences","subaccounts","third-parties","billing"]);
   const BUBBLE_PAGE_ALIASES = {
     settings: "preferences",
@@ -369,7 +369,7 @@
     "rag":         new Set([                                            ...GLOBAL_KEEP]),
     "analytics":   new Set([                                            ...GLOBAL_KEEP]),
     "workflow-builder": new Set([                                       ...GLOBAL_KEEP]),
-    "aurora":      new Set([                                            ...GLOBAL_KEEP]),
+    "aurora":      new Set(["conversationId",                           ...GLOBAL_KEEP]),
     "agents":      new Set(["model","view",                             ...GLOBAL_KEEP]),
     "actions":     new Set(["action_type","action_path","action_url","action_id","view", ...GLOBAL_KEEP]),
     "contacts":    MEMORY_KEEP,
@@ -379,7 +379,7 @@
     "subaccounts": new Set(["subaccount","tab","integration",             ...GLOBAL_KEEP]),
     "third-parties": new Set(["integration",                            ...GLOBAL_KEEP]),
     "billing":     new Set([                                            ...GLOBAL_KEEP]),
-    "logs":        new Set(["log_type","call","log","model","agentId",  ...GLOBAL_KEEP]),
+    "logs":        new Set(["log_type","log","model","agentId",         ...GLOBAL_KEEP]),
   };
 
   const applyAllow = (url, page) => {
@@ -392,7 +392,7 @@
   const copyAllowedParams = (target, source, page) => {
     const keep = ALLOW[page] || GLOBAL_KEEP;
     for (const [k, v] of source.searchParams.entries()) {
-      if (k !== "page" && keep.has(k)) setOrDel(target.searchParams, k, v);
+      if (k !== "page" && k !== "call" && keep.has(k)) setOrDel(target.searchParams, k, v);
     }
   };
 
@@ -448,8 +448,8 @@
   }
 
   const normalizeGlobals = (host, iframe) => {
-    const callId = iframe.searchParams.get("call_id");
-    if (callId) host.searchParams.set("call", callId);
+    const callId = iframe.searchParams.get("callId") || iframe.searchParams.get("call_id") || iframe.searchParams.get("call");
+    setOrDel(host.searchParams, "call", callId);
 
     const workspace = iframe.searchParams.get("workspace");
     if (workspace) host.searchParams.set("workspace", workspace);
