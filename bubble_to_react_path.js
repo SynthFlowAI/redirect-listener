@@ -31,9 +31,13 @@
     navstart: true,
   };
 
-  var GLOBAL_QUERY = ["workspace", "conversationId", "debug_mode"];
-
   var CALL_ID_FROM = ["call", "callId", "call_id", "chatId", "log_id"];
+
+  var GLOBAL_QUERY = [
+    "workspace",
+    "debug_mode",
+    { from: ["call", "callId", "call_id"], as: "callId", unless: { page: "logs", log_type: "chat" } },
+  ];
 
   var PAGE_ROUTES = [
     {
@@ -77,7 +81,7 @@
       query: ["type", "testCaseId"],
     },
     { pages: ["rag"], path: "/knowledge-base" },
-    { pages: ["aurora"], path: "/aurora" },
+    { pages: ["aurora"], path: "/aurora", query: ["conversationId"] },
     { pages: ["analytics"], path: "/analytics" },
     { pages: ["workflow-builder", "workflows"], path: "/workflows" },
     { pages: ["third-parties", "integrations"], path: "/integrations" },
@@ -175,12 +179,6 @@
     }
   }
 
-  function applyGlobalQuery(params, search) {
-    for (var i = 0; i < GLOBAL_QUERY.length; i++) {
-      setQuery(search, GLOBAL_QUERY[i], params.get(GLOBAL_QUERY[i]));
-    }
-  }
-
   function inferPortalBaseFromLocation() {
     if (typeof location === "undefined" || !location.href) return "";
     try {
@@ -247,7 +245,7 @@
     applySegments(parts, params, route.segments);
 
     var search = new URLSearchParams();
-    applyGlobalQuery(params, search);
+    applyQuery(params, search, GLOBAL_QUERY);
     applyQuery(params, search, route.query);
 
     var path = parts.join("/").replace(/\/{2,}/g, "/");

@@ -25,7 +25,7 @@ Current `live`, `1idf`, and `5idf` behavior is the same.
 | --- | --- |
 | `/test-center/...` | `?page=test-center` plus `view`, `type`, `session_id`, `testCaseId` when present |
 | `/knowledge-base` | `?page=rag` |
-| `/aurora` | `?page=aurora` |
+| `/aurora` | `?page=aurora` plus `conversationId` when present (dropped on every other page) |
 | `/analytics` | `?page=analytics` |
 | `/workflows` or `/workflow-builder` | `?page=workflow-builder` |
 | `/integrations` | `?page=third-parties` |
@@ -43,9 +43,13 @@ Current `live`, `1idf`, and `5idf` behavior is the same.
 | `/settings/...` | `?page=preferences` |
 | `?page=agency` | `?page=subaccounts` |
 | `?page=integrations` | `?page=third-parties` |
-| `/logs/:type` | `?page=logs&log_type=:type` plus `call`, `log`, `agentId`/`model` when present |
+| `/logs/:type` | `?page=logs&log_type=:type` plus `log`, `agentId`/`model` when present; `chatId` maps to `call` |
+| Any route with `?callId=...` | Same Bubble URL plus `call=...` (the call detail sheet opens from anywhere) |
 
-Global params preserved when allowed: `page`, `workspace`, `debug_mode`, and `conversationId`.
+Global params preserved when allowed: `page`, `workspace`, `debug_mode`, and `call`.
+
+The iframe's `callId` (or `call_id`/`call`) is mirrored to the parent's `call` on every
+navigation, so closing the call sheet removes `call` from the parent URL.
 
 ## Testing The Listener
 
