@@ -409,7 +409,7 @@
   const copyAllowedParams = (target, source, page) => {
     const keep = ALLOW[page] || GLOBAL_KEEP;
     for (const [k, v] of source.searchParams.entries()) {
-      if (k !== "page" && keep.has(k)) setOrDel(target.searchParams, k, v);
+      if (k !== "page" && k !== "call" && keep.has(k)) setOrDel(target.searchParams, k, v);
     }
   };
 
